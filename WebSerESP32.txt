@@ -1,0 +1,42 @@
+¡Buena pregunta! En realidad, WebServer.h ya viene incluida por defecto con el ESP32 core oficial de Arduino, así que no necesitas instalarla manualmente. Solo necesitas tener correctamente instalada la placa ESP32 en el IDE de Arduino.
+✅ Pasos para instalar el soporte de ESP32 (si aún no lo tienes):
+
+    Abre el IDE de Arduino.
+
+    Ve al menú:
+    Archivo → Preferencias
+
+    En la sección "Gestor de URLs Adicionales de Tarjetas", agrega:
+
+    https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+    (Si ya tienes otra URL, sepáralas con una coma)
+
+    Luego ve a:
+    Herramientas → Placa: → Gestor de tarjetas
+
+    Busca ESP32 e instala el paquete que dice algo como:
+
+        esp32 by Espressif Systems
+
+    Una vez instalado, selecciona tu placa (por ejemplo: ESP32 Dev Module).
+
+✅ Verifica que funcione
+
+Cuando ya tienes el core ESP32, puedes simplemente poner este código mínimo:
+
+#include <WebServer.h>
+
+WebServer server(80);
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("WebServer funcionando");
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+}
+
+Si compila correctamente, ¡ya está todo bien!

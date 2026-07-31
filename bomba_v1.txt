@@ -1,0 +1,158 @@
+#include <WiFi.h>
+#include <WebServer.h>
+
+// Pines
+#define SEL_BOMBA1      15
+#define SEL_BOMBA2      14
+#define FLOT_CISTERNA   4
+#define FLOT_TINACO     5
+#define SENSOR_FLUJO    18
+#define SENSOR_PRESION  19
+#define BOMBA1          26
+#define BOMBA2          27
+
+#define TIEMPO_FLUJO_MS 120000
+
+// Estado
+bool bomba1Encendida = false;
+bool bomba2Encendida = false;
+bool flujoDetectado = false;
+bool esperandoFlujo = false;
+bool esperandoCorteFlujo = false;
+
+unsigned long inicioFlujo = 0;
+unsigned long sinFlujo = 0;
+
+// WiFi
+const char* ssid = "TU_SSID";
+const char* password = "TU_PASSWORD";
+WebServer server(80);
+
+// Flags para control web
+bool activarWebBomba1 = false;
+bool activarWebBomba2 = false;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(SEL_BOMBA1, INPUT);
+  pinMode(SEL_BOMBA2, INPUT);
+  pinMode(FLOT_CISTERNA, INPUT);
+  pinMode(FLOT_TINACO, INPUT);
+  pinMode(SENSOR_FLUJO, INPUT);
+  pinMode(SENSOR_PRESION, INPUT);
+  pinMode(BOMBA1, OUTPUT);
+  pinMode(BOMBA2, OUTPUT);
+
+  digitalWrite(BOMBA1, LOW);
+  digitalWrite(BOMBA2, LOW);
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500); Serial.print(".");
+  }
+  Serial.println("WiFi conectado: " + WiFi.localIP().toString());
+
+  // Web
+  server.on("/", mostrarWeb);
+  server.on("/bomba1/on", []() { activarWebBomba1 = true; server.sendHeader("Location", "/"); server.send(303); });
+  server.on("/bomba1/off", []() { apagarBomba1("Web"); server.sendHeader("Location", "/"); server.send(303); });
+  server.on("/bomba2/on", []() { activarWebBomba2 = true; server.sendHeader("Location", "/"); server.send(303); });
+  server.on("/bomba2/off", []() { apagarBomba2("Web"); server.sendHeader("Location", "/"); server.send(303); });
+  server.begin();
+}
+
+void loop() {
+  server.handleClient();
+
+  bool sel1 = digitalRead(SEL_BOMBA1) == HIGH || activarWebBomba1;
+  bool sel2 = digitalRead(SEL_BOMBA2) == HIGH || activarWebBomba2;
+  bool cisternaLlena = digitalRead(FLOT_CISTERNA) == HIGH;
+  bool tinacoLleno = digitalRead(FLOT_TINACO) == HIGH;
+  bool flujo = digitalRead(SENSOR_FLUJO) == HIGH;
+  bool presion = digitalRead(SENSOR_PRESION) == HIGH;
+
+  // -------- BOMBA 1 --------
+  if (!bomba1Encendida && sel1 && !cisternaLlena) {
+    bomba1Encendida = true;
+    digitalWrite(BOMBA1, HIGH);
+    flujoDetectado = false;
+    esperandoFlujo = true;
+    inicioFlujo = millis();
+    Serial.println("BOMBA 1 ENCENDIDA");
+  }
+
+  if (bomba1Encendida) {
+    if (!sel1) apagarBomba1("Selector apagado");
+
+    if (presion) apagarBomba1("Presión detectada");
+
+    if (esperandoFlujo) {
+      if (flujo) {
+        flujoDetectado = true;
+        esperandoFlujo = false;
+      } else if (millis() - inicioFlujo > TIEMPO_FLUJO_MS) {
+        apagarBomba1("No detectó flujo en 120s");
+      }
+    }
+
+    if (flujoDetectado && !flujo) {
+      if (!esperandoCorteFlujo) {
+        sinFlujo = millis();
+        esperandoCorteFlujo = true;
+      } else if (millis() - sinFlujo > TIEMPO_FLUJO_MS) {
+        apagarBomba1("Pérdida de flujo por 120s");
+      }
+    }
+
+    if (flujoDetectado && flujo) {
+      esperandoCorteFlujo = false;
+    }
+  }
+
+  // -------- BOMBA 2 --------
+  if (!bomba2Encendida && sel2 && !tinacoLleno) {
+    bomba2Encendida = true;
+    digitalWrite(BOMBA2, HIGH);
+    Serial.println("BOMBA 2 ENCENDIDA");
+  }
+
+  if (bomba2Encendida) {
+    if (!sel2) apagarBomba2("Selector apagado");
+    if (tinacoLleno) apagarBomba2("Tinaco lleno");
+  }
+
+  delay(100); // Antirebote
+}
+
+// -------- FUNCIONES --------
+void apagarBomba1(String motivo) {
+  digitalWrite(BOMBA1, LOW);
+  bomba1Encendida = false;
+  activarWebBomba1 = false;
+  flujoDetectado = false;
+  esperandoFlujo = false;
+  esperandoCorteFlujo = false;
+  Serial.println("BOMBA 1 APAGADA: " + motivo);
+}
+
+void apagarBomba2(String motivo) {
+  digitalWrite(BOMBA2, LOW);
+  bomba2Encendida = false;
+  activarWebBomba2 = false;
+  Serial.println("BOMBA 2 APAGADA: " + motivo);
+}
+
+void mostrarWeb() {
+  String html = "<html><body><h1>Control Bombas ESP32</h1>";
+  html += "<h2>Bomba 1: " + String(bomba1Encendida ? "ENCENDIDA" : "APAGADA") + "</h2>";
+  html += bomba1Encendida ? "<a href='/bomba1/off'>Apagar</a>" : "<a href='/bomba1/on'>Encender</a>";
+  html += "<h2>Bomba 2: " + String(bomba2Encendida ? "ENCENDIDA" : "APAGADA") + "</h2>";
+  html += bomba2Encendida ? "<a href='/bomba2/off'>Apagar</a>" : "<a href='/bomba2/on'>Encender</a>";
+  html += "<hr><p>Flotador cisterna: " + String(digitalRead(FLOT_CISTERNA) ? "ALTO" : "BAJO") + "</p>";
+  html += "<p>Flotador tinaco: " + String(digitalRead(FLOT_TINACO) ? "LLENO" : "VACÍO") + "</p>";
+  html += "<p>Flujo: " + String(digitalRead(SENSOR_FLUJO) ? "AGUA" : "SIN AGUA") + "</p>";
+  html += "<p>Presión: " + String(digitalRead(SENSOR_PRESION) ? "DETECTADA" : "NORMAL") + "</p>";
+  html += "</body></html>";
+  server.send(200, "text/html", html);
+}

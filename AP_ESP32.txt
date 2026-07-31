@@ -1,0 +1,1 @@
+Cómo usar el AP de respaldo: si el ESP32 no puede unirse al Wi-Fi en ~30 s, creará la red ESP32-Backup (clave 12345678). Conéctate a ella y entra a http://192.168.4.1/. En cuanto el router vuelva y el ESP32 logre asociarse, apagará el AP y regresará a modo STA con tu IP fija.
