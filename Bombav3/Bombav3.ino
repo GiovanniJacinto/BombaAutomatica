@@ -9,7 +9,7 @@
 const char* ssid     = "JacintoLopez";
 const char* password = "_LbJc01031719*";
 
-IPAddress local_IP(192, 168, 100, 201);
+IPAddress local_IP(192, 168, 100, 200);
 IPAddress gateway(192, 168, 100, 1);
 IPAddress subnet(255, 255, 255, 0);
 IPAddress primaryDNS(8, 8, 8, 8);
@@ -68,7 +68,7 @@ volatile bool temporizador_bomba2_activo = false;
 volatile unsigned long tiempo_flotador2_alto = 0;
 
 //==============================
-// WiFi robusto
+// WiFi robusto y Auto-Reconexión
 //==============================
 unsigned long lastWifiCheck = 0;
 const unsigned long WIFI_CHECK_MS = 5000;
@@ -95,7 +95,7 @@ void encenderBomba2Manual();
 void apagarBomba2Manual();
 
 //==============================
-// Interfaz Web HTML (Intacta)
+// Interfaz Web HTML
 //==============================
 const char ROOT_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -188,6 +188,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
 <div class='status-item'><span class='status-label'>Flujo</span><span id='status-flujo' class='status-value'></span></div>
 <div class='status-item'><span class='status-label'>Presi&oacute;n</span><span id='status-presion' class='status-value'></span></div>
 </div></div></div>
+
 <div class='pump-controls'>
 <div class='pump-card'>
 <h3 class='pump-title'>🚰 Bomba 1 - Cisterna</h3>
@@ -197,6 +198,29 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
 <div class='control-section'><div class='section-title'>🤖 Control Autom&aacute;tico</div><div class='button-group'><a href='/bomba1on' class='btn btn-on'>⚡ Encender</a><a href='/bomba1off' class='btn btn-off'>⏹ Apagar</a></div></div>
 <div class='control-section'><div class='section-title'>🔧 Control Manual (Sin Protecciones)</div><div class='button-group'><a href='/bomba1manualon' class='btn btn-manual'>🔥 Manual ON</a><a href='/bomba1manualoff' class='btn btn-manual'>🛑 Manual OFF</a></div><div class='warning'>⚠️ ATENCI&Oacute;N: El modo manual ignora todas las protecciones de seguridad</div></div>
 </div>
+
+<div class='pump-controls' style='margin-top: 25px;'>
+  <div class='pump-card' style='grid-column: 1 / -1; max-width: 800px; margin: 0 auto; width: 100%;'>
+    <h3 class='pump-title'>⏳ Llenado extra para cisterna</h3>
+    <div class='control-section'>
+      <div class='section-title'>⏱️ Parámetros del Temporizador</div>
+      <div style='display: flex; flex-wrap: wrap; justify-content: center; gap: 30px; align-items: center; margin-bottom: 20px;'>
+        <label style='cursor: pointer; font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 10px; color: #333;'>
+          <input type='checkbox' id='checkTimer' style='transform: scale(1.6); accent-color: #4CAF50;'>
+          Activar tiempo extra de llenado
+        </label>
+        <div style='display: flex; align-items: center; gap: 10px;'>
+          <label style='font-size: 1.1rem; font-weight: 600; color: #333;'>Minutos extra:</label>
+          <input type='number' id='inputMinutos' value='60' min='1' max='120' style='padding: 10px 15px; width: 90px; font-size: 1.1rem; border: 2px solid #e1ecff; border-radius: 12px; text-align: center; outline: none; background: #fff;'>
+        </div>
+      </div>
+      <div class='button-group' style='max-width: 300px; margin: 0 auto;'>
+        <button onclick='guardarTimer()' class='btn btn-on' style='width: 100%; font-family: inherit;'>💾 Guardar Configuración</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class='pump-card'>
 <h3 class='pump-title'>🏠 Bomba 2 - Tinaco</h3>
 <div id='card-selector2' class='selector-status'></div>
@@ -206,22 +230,7 @@ body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background:linear-g
 <div class='control-section'><div class='section-title'>🔧 Control Manual (Sin Protecciones)</div><div class='button-group'><a href='/bomba2manualon' class='btn btn-manual'>🔥 Manual ON</a><a href='/bomba2manualoff' class='btn btn-manual'>🛑 Manual OFF</a></div><div class='warning'>⚠️ ATENCI&Oacute;N: El modo manual ignora todas las protecciones de seguridad</div></div>
 </div>
 </div>
-<div class="card" style="border: 1px solid #ccc; padding: 20px; border-radius: 8px; margin-top: 20px;">
-  <h2>Configuración de Llenado Extra</h2>
-  <div style="margin-bottom: 15px;">
-    <label style="cursor: pointer; font-size: 16px;">
-      <input type="checkbox" id="checkTimer" style="transform: scale(1.5); margin-right: 10px;">
-      Activar tiempo extra de llenado
-    </label>
-  </div>
-  <div style="margin-bottom: 15px;">
-    <label style="font-size: 16px; margin-right: 10px;">Minutos extra:</label>
-    <input type="number" id="inputMinutos" value="60" min="1" max="120" style="padding: 8px; width: 80px; font-size: 16px;">
-  </div>
-  <button onclick="guardarTimer()" style="background-color: #007bff; color: white; border: none; padding: 10px 20px; font-size: 16px; border-radius: 5px; cursor: pointer;">
-    Guardar Configuración
-  </button>
-</div>
+
 <div class='system-info'>
 <div class='card-title'>⚙️ Informaci&oacute;n del Sistema</div>
 <div class='info-grid'>
@@ -294,15 +303,16 @@ void setup() {
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
-  WiFi.setAutoReconnect(false); // Detenemos la reconexión nativa que bloquea todo
+  WiFi.setAutoReconnect(false); 
   WiFi.setHostname("esp32-bombas");
 
   if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
     Serial.println("Error al configurar IP fija");
   }
 
+  // Cuando logramos conectar a la red original, se apaga el AP
   WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info){
-    Serial.print("Conectado. IP: ");
+    Serial.print("\n>>> CONECTADO A LA RED PRINCIPAL. IP: ");
     Serial.println(WiFi.localIP());
     reconnectTries = 0;
     stopAPBackup();
@@ -313,11 +323,8 @@ void setup() {
   }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
   startWiFiSTA();
-
-  // Configuración de las rutas del servidor web
   configureWebServer();
 
-  // Ruta para recibir la configuración del timer desde la App Web
   server.on("/setTimer", HTTP_GET, []() {
     if (server.hasArg("activado") && server.hasArg("minutos")) {
       String strActivado = server.arg("activado");
@@ -325,9 +332,6 @@ void setup() {
       
       portENTER_CRITICAL(&estadoMux);
       habilitar_tiempo_extra = (strActivado == "true");
-      
-      // Convertimos los minutos a milisegundos (1 minuto = 60,000 ms)
-      // Ejemplo: 90 minutos * 60000 = 5,400,000 ms
       tiempo_extra_llenado = strMinutos.toInt() * 60000; 
       portEXIT_CRITICAL(&estadoMux);
       
@@ -342,11 +346,9 @@ void setup() {
     }
   });
 
-  // Iniciar servidor síncrono
   server.begin();
   Serial.println("Servidor HTTP Síncrono iniciado");
 
-  // Iniciar tarea en Núcleo 0 
   xTaskCreatePinnedToCore(
     TaskControlHardware, "ControlHardware", 10000, NULL, 1, &Task1, 0
   );
@@ -359,9 +361,7 @@ void setup() {
 // Loop (Core 1: Web)
 //==============================
 void loop() {
-  // En el servidor oficial de Espressif, es obligatorio manejar las peticiones en el loop
   server.handleClient(); 
-  
   ensureWiFi();
   delay(2);
 }
@@ -376,7 +376,7 @@ void configureWebServer() {
   });
 
   server.on("/status", HTTP_GET, [](){
-    DynamicJsonDocument doc(1024); // Memoria generosa y segura
+    JsonDocument doc; 
     doc["bomba1"] = bomba1_encendida;
     doc["bomba2"] = bomba2_encendida;
     doc["modo_manual_bomba1"] = modo_manual_bomba1;
@@ -393,14 +393,13 @@ void configureWebServer() {
     doc["bloqueo_bomba2"] = bloqueo_bomba2;
     doc["ip"] = apBackupActivo ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
     doc["heap_libre"] = ESP.getFreeHeap();
-    doc["modo"] = apBackupActivo ? "AP" : "STA";
+    doc["modo"] = apBackupActivo ? "AP+STA" : "STA";
     
     String output;
     serializeJson(doc, output);
     server.send(200, "application/json", output);
   });
 
-  // Rutas de control con redirección estándar (Status 303 See Other)
   server.on("/bomba1on", HTTP_GET, [](){
     encenderBomba1();
     server.sendHeader("Location", "/");
@@ -476,12 +475,10 @@ void TaskControlHardware(void * pvParameters) {
     bool u_sel2 = ultimo_selector2;
     bool b_bomba2 = bloqueo_bomba2;
     
-    // Leer variables del timer web de forma segura
     bool hab_timer = habilitar_tiempo_extra;
     unsigned long t_extra = tiempo_extra_llenado;
     portEXIT_CRITICAL(&estadoMux);
 
-    // --- Control Manual Bomba 1 ---
     if (!m_manual1) {
       if (selector1_actual == HIGH && u_sel1 == LOW && !b_bomba1) {
         encenderBomba1();
@@ -493,7 +490,6 @@ void TaskControlHardware(void * pvParameters) {
       }
     }
 
-    // --- Control Manual Bomba 2 ---
     if (!m_manual2) {
       if (selector2_actual == HIGH && u_sel2 == LOW && !b_bomba2) {
         encenderBomba2();
@@ -505,7 +501,6 @@ void TaskControlHardware(void * pvParameters) {
       }
     }
 
-    // Actualizar selectores
     portENTER_CRITICAL(&estadoMux);
     ultimo_selector1 = selector1_actual;
     ultimo_selector2 = selector2_actual;
@@ -516,9 +511,6 @@ void TaskControlHardware(void * pvParameters) {
     bool b2_enc = bomba2_encendida;
     portEXIT_CRITICAL(&estadoMux);
     
-    // ==========================================
-    // LÓGICA BOMBA 1 (CISTERNA) CON TIMER WEB
-    // ==========================================
     if (b1_enc && !m_manual1) {
       if (digitalRead(FLOTADOR_CISTERNA) == HIGH) {
         if (hab_timer) {
@@ -547,7 +539,6 @@ void TaskControlHardware(void * pvParameters) {
       } else {
         temporizador_bomba1_activo = false; 
         
-        // Protecciones de presión y flujo (Bomba 1)
         if (digitalRead(SENSOR_PRESION) == HIGH) {
           Serial.println("Alta presión detectada, apagando bomba 1");
           apagarBomba1();
@@ -577,9 +568,6 @@ void TaskControlHardware(void * pvParameters) {
       }
     }
 
-    // ==========================================
-    // LÓGICA BOMBA 2 (TINACO) CON TIMER WEB
-    // ==========================================
     if (b2_enc && !m_manual2) {
       if (digitalRead(FLOTADOR_TINACO) == HIGH) {
         if (hab_timer) {
@@ -694,9 +682,9 @@ void apagarBomba2Manual() {
   portEXIT_CRITICAL(&estadoMux);
 }
 
-//==============================
-// WiFi robusto (Corregido y Limpio)
-//==============================
+//========================================================
+// WiFi Robusto - Lógica de Auto-Reconexión en Fondo
+//========================================================
 void startWiFiSTA() {
   Serial.printf("Conectando a SSID '%s' ...\n", ssid);
   WiFi.begin(ssid, password);
@@ -712,39 +700,49 @@ void startWiFiSTA() {
     Serial.println(WiFi.localIP());
     reconnectTries = 0;
   } else {
-    Serial.println("No conecto en el primer intento.");
+    Serial.println("No conecto en el primer intento. El Loop intentará después.");
   }
 }
 
 void ensureWiFi() {
-  if (millis() - lastWifiCheck < WIFI_CHECK_MS) return;
+  // Si estamos conectados de forma exitosa a la red
+  if (WiFi.status() == WL_CONNECTED) {
+    if (apBackupActivo) {
+       stopAPBackup(); // Por si acaso nos reconectamos y el AP seguía vivo
+    }
+    reconnectTries = 0;
+    return; // Todo perfecto, salimos
+  }
+
+  // Si estamos desconectados, definimos el tiempo de espera entre intentos
+  // Si el AP está activo, damos 15 segundos para no trabar a los usuarios del AP
+  // Si el AP no está activo, intentamos cada 5 segundos
+  unsigned long currentInterval = apBackupActivo ? 15000 : WIFI_CHECK_MS;
+
+  if (millis() - lastWifiCheck < currentInterval) return;
   lastWifiCheck = millis();
 
-  if (apBackupActivo) {
-    return; // Si el AP está activo, no forzamos reconexión STA para no tirar el servidor
+  if (reconnectTries < 250) { // Límite de conteo para no desbordar la variable
+    reconnectTries++;
   }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    reconnectTries = 0;
-    return;
-  }
-
-  reconnectTries++;
-  Serial.printf("WiFi caido. Reintento %u/%u\n", reconnectTries, MAX_TRIES_BEFORE_AP);
   
-  WiFi.disconnect();
-  delay(100);
-  WiFi.begin(ssid, password);
-
-  if (reconnectTries >= MAX_TRIES_BEFORE_AP) {
+  Serial.printf("WiFi principal caido. Intento de reconexion en fondo #%u\n", reconnectTries);
+  
+  // Si ya falló demasiadas veces y el AP aún NO está activo, lo encendemos
+  if (reconnectTries >= MAX_TRIES_BEFORE_AP && !apBackupActivo) {
     startAPBackup();
   }
+
+  // Ordenamos al chip de red intentar conectar a tu módem nuevamente (no bloquea el código)
+  WiFi.disconnect(false); // Desconecta STA sin apagar la radio
+  WiFi.begin(ssid, password);
 }
 
 void startAPBackup() {
-  Serial.println("Activando AP de respaldo: ESP32-Backup (clave: 12345678)");
-  WiFi.disconnect(); 
-  WiFi.mode(WIFI_AP); 
+  Serial.println("\n[!] Activando AP de respaldo: ESP32-Backup (clave: 12345678)");
+  // LA MAGIA OCURRE AQUÍ: Modo AP + STA permite tener la red de respaldo activa 
+  // MIENTRAS el ESP32 sigue buscando conectarse a tu módem en segundo plano.
+  WiFi.mode(WIFI_AP_STA); 
   
   bool ok = WiFi.softAP("ESP32-Backup", "12345678", 1, 0, 4);
   if (ok) {
@@ -759,9 +757,9 @@ void startAPBackup() {
 
 void stopAPBackup() {
   if (apBackupActivo) {
-    Serial.println("Desactivando AP de respaldo.");
+    Serial.println("Desactivando AP de respaldo porque ya hay WiFi.");
     WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA); // Volvemos a modo cliente puro
     apBackupActivo = false;
-    WiFi.mode(WIFI_STA);
   }
 }
